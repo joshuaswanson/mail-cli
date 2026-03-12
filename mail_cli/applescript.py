@@ -47,6 +47,7 @@ def list_messages(
     before: datetime | None = None,
     subject_filter: str | None = None,
     sender_filter: str | None = None,
+    unread_only: bool = False,
 ) -> list[dict]:
     conditions = []
     if subject_filter:
@@ -57,6 +58,8 @@ def list_messages(
         conditions.append(f"date received > {_as_date(after)}")
     if before:
         conditions.append(f"date received < {_as_date(before)}")
+    if unread_only:
+        conditions.append("read status is false")
 
     whose = ""
     if conditions:
@@ -243,6 +246,33 @@ tell application "Mail"
     send replyMsg
 end tell
 return "sent"'''
+    return _run(script)
+
+
+def delete_message(account_name: str, folder: str, message_id: str) -> str:
+    script = f'''
+tell application "Mail"
+    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set matches to (every message of mb whose message id is "{_esc(message_id)}")
+    if (count of matches) is 0 then return "message not found"
+    set targetMsg to item 1 of matches
+    delete targetMsg
+    return "deleted"
+end tell'''
+    return _run(script)
+
+
+def move_message(account_name: str, from_folder: str, to_folder: str, message_id: str) -> str:
+    script = f'''
+tell application "Mail"
+    set srcMb to mailbox "{_esc(from_folder)}" of account "{_esc(account_name)}"
+    set dstMb to mailbox "{_esc(to_folder)}" of account "{_esc(account_name)}"
+    set matches to (every message of srcMb whose message id is "{_esc(message_id)}")
+    if (count of matches) is 0 then return "message not found"
+    set targetMsg to item 1 of matches
+    move targetMsg to dstMb
+    return "moved"
+end tell'''
     return _run(script)
 
 

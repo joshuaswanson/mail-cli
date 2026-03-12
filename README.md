@@ -4,11 +4,12 @@ A command-line interface for Apple Mail on macOS. Wraps AppleScript to provide f
 
 ## Features
 
-- **List and search emails** with filters for subject, sender, date range, and body content
+- **List and search emails** with filters for subject, sender, date range, body content, and read status
 - **Search across all folders** at once with `--all-folders`
 - **Read messages** by index or message ID, in plain text, HTML, or extract links
+- **Delete and move** messages between folders
 - **Send and reply** to emails from any configured account
-- **Multiple accounts** with automatic inbox name normalization
+- **Multiple accounts** with automatic inbox name normalization and date-sorted merged results
 - **JSON output** for scripting and piping
 
 ## Installation
@@ -51,12 +52,15 @@ Note: different mail providers use different inbox names (e.g. iCloud uses `INBO
 ### List recent messages
 
 ```bash
-mail list                          # all accounts, 20 most recent
+mail list                          # all accounts, sorted by date
 mail list -a personal -n 10        # specific account, 10 messages
-mail list -a work -f "Projects"    # specific folder
+mail list -a work -f "Projects"    # specific folder (shows header)
 mail list -A                       # all folders across all accounts
-mail list -a work -A               # all folders for one account
+mail list -u                       # unread only
+mail list -a work -u               # unread for one account
 ```
+
+When listing from a specific folder, a header like `work/Projects (5)` is shown. When listing across accounts, results are merged and sorted by date.
 
 ### Search
 
@@ -66,6 +70,7 @@ mail search --sender "alice@example.com"           # by sender
 mail search --after 2025-01-01 --before 2025-02-01 # by date range
 mail search -b "quarterly report" -a work          # body search (slower)
 mail search -s "hotel" -A                          # search all folders
+mail search -u --sender "boss@work.com"            # unread from a sender
 ```
 
 Filters can be combined. Omit `--account` to search across all accounts. Use `-A` / `--all-folders` to search every folder instead of just the inbox.
@@ -82,6 +87,23 @@ mail read 1 --max-length 500           # truncate body
 ```
 
 Indexes are 1-based, matching the order from `mail list`. Message IDs are shown in `list` and `search` output when using `--json`.
+
+### Delete
+
+```bash
+mail delete 1 -a personal                          # preview
+mail delete 1 -a personal --confirm                # delete first message in inbox
+mail delete 3 -a personal -f "ICLR" --confirm      # delete 3rd message in folder
+mail delete <message-id> -a work --confirm         # delete by message ID
+```
+
+### Move
+
+```bash
+mail move 1 -a personal -t "Archive"                        # preview
+mail move 1 -a personal -t "Archive" --confirm               # move from inbox to Archive
+mail move 2 -a personal -f "ICLR" -t "INBOX" --confirm      # move between folders
+```
 
 ### Send
 

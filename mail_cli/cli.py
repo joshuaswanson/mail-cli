@@ -1,6 +1,7 @@
 """CLI entry point for mail-cli."""
 
 import json
+from datetime import datetime as _datetime
 
 import click
 
@@ -32,6 +33,43 @@ def _format_msg(m: dict, show_account: bool = False, show_folder: bool = False) 
     if tags:
         parts.append("  " + click.style(f'[{"/".join(tags)}]', fg=DIM))
     return "".join(parts)
+
+
+def _parse_date(date_str: str) -> _datetime:
+    """Best-effort parse of AppleScript date strings for sorting."""
+    for fmt in (
+        "%A, %B %d, %Y at %H:%M:%S",
+        "%A, %B %d, %Y at %I:%M:%S %p",
+        "%B %d, %Y at %H:%M:%S",
+    ):
+        try:
+            return _datetime.strptime(date_str.strip(), fmt)
+        except ValueError:
+            continue
+    return _datetime.min
+
+
+def _sort_by_date(msgs: list[dict]) -> list[dict]:
+    """Sort messages by date, newest first."""
+    return sorted(msgs, key=lambda m: _parse_date(m.get("date", "")), reverse=True)
+
+
+def _print_header(alias: str, folder: str, count: int) -> None:
+    label = click.style(f"{alias}/{folder}", bold=True)
+    count_str = click.style(f"({count})", fg=DIM)
+    click.echo(f"{label} {count_str}")
+
+
+def _resolve_msg_id(identifier: str, account_name: str, folder: str) -> str | None:
+    """Resolve an identifier (index or message ID) to a message ID."""
+    try:
+        idx = int(identifier)
+        msgs = applescript.list_messages(account_name, folder, limit=idx)
+        if idx < 1 or idx > len(msgs):
+            return None
+        return msgs[idx - 1]["message_id"]
+    except ValueError:
+        return identifier
 
 
 def _resolve_targets(acct: str | None, folder: str | None, all_folders: bool):
@@ -110,18 +148,21 @@ def folders_cmd(acct: str | None):
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder (default: inbox).")
 @click.option("--all-folders", "-A", is_flag=True, help="Search all folders.")
+@click.option("--unread", "-u", is_flag=True, help="Show only unread messages.")
 @click.option("--limit", "-n", default=20, help="Number of messages.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def list_cmd(acct: str | None, folder: str | None, all_folders: bool, limit: int, as_json: bool):
+def list_cmd(acct: str | None, folder: str | None, all_folders: bool, unread: bool, limit: int, as_json: bool):
     """List recent messages."""
     targets = _resolve_targets(acct, folder, all_folders)
     all_msgs = []
     for alias, config, mailbox in targets:
         try:
-            msgs = applescript.list_messages(config["name"], mailbox, limit=limit)
+            msgs = applescript.list_messages(config["name"], mailbox, limit=limit, unread_only=unread)
             all_msgs.extend(msgs)
         except RuntimeError:
             continue
+
+    all_msgs = _sort_by_date(all_msgs)
 
     if as_json:
         click.echo(json.dumps(all_msgs, indent=2))
@@ -132,6 +173,9 @@ def list_cmd(acct: str | None, folder: str | None, all_folders: bool, limit: int
         return
 
     show_account = acct is None
+    multi_source = all_folders or (acct is None)
+    if not multi_source and folder:
+        _print_header(acct or targets[0][0], folder, len(all_msgs))
     for m in all_msgs:
         click.echo(_format_msg(m, show_account, show_folder=all_folders))
 
@@ -143,6 +187,7 @@ def list_cmd(acct: str | None, folder: str | None, all_folders: bool, limit: int
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder (default: inbox).")
 @click.option("--all-folders", "-A", is_flag=True, help="Search all folders.")
+@click.option("--unread", "-u", is_flag=True, help="Show only unread messages.")
 @click.option("--subject", "-s", "subject_filter", default=None, help="Filter by subject.")
 @click.option("--sender", "sender_filter", default=None, help="Filter by sender.")
 @click.option("--body", "-b", "body_query", default=None, help="Search message body (slower).")
@@ -150,7 +195,7 @@ def list_cmd(acct: str | None, folder: str | None, all_folders: bool, limit: int
 @click.option("--before", default=None, type=click.DateTime(formats=["%Y-%m-%d"]), help="Before date (YYYY-MM-DD).")
 @click.option("--limit", "-n", default=20, help="Max results.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def search_cmd(acct, folder, all_folders, subject_filter, sender_filter, body_query, after, before, limit, as_json):
+def search_cmd(acct, folder, all_folders, unread, subject_filter, sender_filter, body_query, after, before, limit, as_json):
     """Search messages by metadata or body content."""
     targets = _resolve_targets(acct, folder, all_folders)
     all_results = []
@@ -168,10 +213,13 @@ def search_cmd(acct, folder, all_folders, subject_filter, sender_filter, body_qu
                     config["name"], mailbox, limit=limit,
                     after=after, before=before,
                     subject_filter=subject_filter, sender_filter=sender_filter,
+                    unread_only=unread,
                 )
             all_results.extend(msgs)
         except RuntimeError:
             continue
+
+    all_results = _sort_by_date(all_results)
 
     if as_json:
         click.echo(json.dumps(all_results, indent=2))
@@ -318,4 +366,73 @@ def reply_cmd(message_id, acct, folder, body, reply_all, confirm):
         return
 
     result = applescript.reply_to_message(config["name"], mailbox, message_id, body, reply_all)
+    click.echo(result)
+
+
+# --- delete ---
+
+
+@cli.command("delete")
+@click.argument("identifier")
+@click.option("--account", "-a", "acct", required=True, help="Account alias.")
+@click.option("--folder", "-f", default=None, help="Mailbox folder.")
+@click.option("--confirm", is_flag=True, help="Actually delete (required).")
+def delete_cmd(identifier, acct, folder, confirm):
+    """Delete a message by index (1-based) or message ID. Requires --confirm."""
+    config = accounts.resolve_account(acct)
+    mailbox = accounts.resolve_folder(acct, folder)
+    message_id = _resolve_msg_id(identifier, config["name"], mailbox)
+
+    if not message_id:
+        click.echo("Message not found.")
+        return
+
+    msg = applescript.read_message(config["name"], mailbox, message_id)
+    if not msg:
+        click.echo("Message not found.")
+        return
+
+    if not confirm:
+        click.echo(f'{click.style("Delete:", bold=True)} {msg["subject"]}')
+        click.echo(f'{click.style("From:", bold=True)} {msg["sender"]}')
+        click.echo(f'{click.style("Date:", bold=True)} {msg["date"]}')
+        click.echo(f'\nPass {click.style("--confirm", bold=True)} to actually delete.')
+        return
+
+    result = applescript.delete_message(config["name"], mailbox, message_id)
+    click.echo(result)
+
+
+# --- move ---
+
+
+@cli.command("move")
+@click.argument("identifier")
+@click.option("--account", "-a", "acct", required=True, help="Account alias.")
+@click.option("--from", "-f", "from_folder", default=None, help="Source folder (default: inbox).")
+@click.option("--to", "-t", "to_folder", required=True, help="Destination folder.")
+@click.option("--confirm", is_flag=True, help="Actually move (required).")
+def move_cmd(identifier, acct, from_folder, to_folder, confirm):
+    """Move a message between folders. Requires --confirm."""
+    config = accounts.resolve_account(acct)
+    src = accounts.resolve_folder(acct, from_folder)
+    message_id = _resolve_msg_id(identifier, config["name"], src)
+
+    if not message_id:
+        click.echo("Message not found.")
+        return
+
+    msg = applescript.read_message(config["name"], src, message_id)
+    if not msg:
+        click.echo("Message not found.")
+        return
+
+    if not confirm:
+        click.echo(f'{click.style("Move:", bold=True)} {msg["subject"]}')
+        click.echo(f'{click.style("From folder:", bold=True)} {src}')
+        click.echo(f'{click.style("To folder:", bold=True)} {to_folder}')
+        click.echo(f'\nPass {click.style("--confirm", bold=True)} to actually move.')
+        return
+
+    result = applescript.move_message(config["name"], src, to_folder, message_id)
     click.echo(result)
