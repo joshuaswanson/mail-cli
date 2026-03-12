@@ -141,6 +141,7 @@ mail reply <message-id> -b "Thanks!" --all --confirm  # reply all
 mail folders              # list all folders for all accounts
 mail folders -a personal  # list folders for one account
 mail account list         # show configured accounts
+mail refresh              # check for new mail across all accounts
 ```
 
 ### JSON output

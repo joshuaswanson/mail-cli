@@ -31,6 +31,10 @@ def _as_date(dt: datetime) -> str:
     return dt.strftime('date "%A, %B %d, %Y at %H:%M:%S"')
 
 
+def check_for_new_mail() -> str:
+    return _run('tell application "Mail" to check for new mail')
+
+
 def list_folders(account_name: str) -> list[str]:
     script = f'tell application "Mail" to get name of every mailbox of account "{_esc(account_name)}"'
     raw = _run(script)

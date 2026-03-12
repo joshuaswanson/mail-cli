@@ -94,6 +94,13 @@ def cli():
 # --- accounts ---
 
 
+@cli.command("refresh")
+def refresh_cmd():
+    """Check for new mail across all accounts."""
+    applescript.check_for_new_mail()
+    click.echo("Checking for new mail...")
+
+
 @cli.group()
 def account():
     """Manage mail accounts."""
