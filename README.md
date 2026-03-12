@@ -5,7 +5,8 @@ A command-line interface for Apple Mail on macOS. Wraps AppleScript to provide f
 ## Features
 
 - **List and search emails** with filters for subject, sender, date range, and body content
-- **Read messages** in plain text, HTML, or extract links
+- **Search across all folders** at once with `--all-folders`
+- **Read messages** by index or message ID, in plain text, HTML, or extract links
 - **Send and reply** to emails from any configured account
 - **Multiple accounts** with automatic inbox name normalization
 - **JSON output** for scripting and piping
@@ -53,6 +54,8 @@ Note: different mail providers use different inbox names (e.g. iCloud uses `INBO
 mail list                          # all accounts, 20 most recent
 mail list -a personal -n 10        # specific account, 10 messages
 mail list -a work -f "Projects"    # specific folder
+mail list -A                       # all folders across all accounts
+mail list -a work -A               # all folders for one account
 ```
 
 ### Search
@@ -62,20 +65,23 @@ mail search -s "invoice"                          # by subject
 mail search --sender "alice@example.com"           # by sender
 mail search --after 2025-01-01 --before 2025-02-01 # by date range
 mail search -b "quarterly report" -a work          # body search (slower)
+mail search -s "hotel" -A                          # search all folders
 ```
 
-Filters can be combined. Omit `--account` to search across all accounts.
+Filters can be combined. Omit `--account` to search across all accounts. Use `-A` / `--all-folders` to search every folder instead of just the inbox.
 
 ### Read a message
 
 ```bash
-mail read <message-id>                  # plain text
-mail read <message-id> --format html    # HTML body
-mail read <message-id> --format links   # extract all links
-mail read <message-id> --max-length 500 # truncate body
+mail read 1                             # read first message in inbox (by index)
+mail read 3 -a work -f "Projects"       # read 3rd message in a specific folder
+mail read <message-id>                  # read by message ID
+mail read 1 --format html              # HTML body
+mail read 1 --format links             # extract all links
+mail read 1 --max-length 500           # truncate body
 ```
 
-Message IDs are shown in `list` and `search` output when using `--json`.
+Indexes are 1-based, matching the order from `mail list`. Message IDs are shown in `list` and `search` output when using `--json`.
 
 ### Send
 

@@ -18,16 +18,34 @@ def _truncate(text: str, length: int = 80) -> str:
     return text
 
 
-def _format_msg(m: dict, show_account: bool = False) -> str:
+def _format_msg(m: dict, show_account: bool = False, show_folder: bool = False) -> str:
     read_marker = " " if m["read"] else click.style("*", fg="yellow")
     date = click.style(m["date"], fg=DIM)
     sender = click.style(_truncate(m["sender"], 30), fg=SENDER)
     subject = m["subject"]
     parts = [read_marker, date, " ", sender, "  ", subject]
+    tags = []
     if show_account:
-        tag = click.style(f'[{m["account"]}]', fg=DIM)
-        parts.append("  " + tag)
+        tags.append(m["account"])
+    if show_folder:
+        tags.append(m["folder"])
+    if tags:
+        parts.append("  " + click.style(f'[{"/".join(tags)}]', fg=DIM))
     return "".join(parts)
+
+
+def _resolve_targets(acct: str | None, folder: str | None, all_folders: bool):
+    """Return list of (alias, config, mailbox) tuples to search."""
+    if all_folders:
+        targets = []
+        acct_list = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+        for alias, config in acct_list:
+            for f in applescript.list_folders(config["name"]):
+                targets.append((alias, config, f))
+        return targets
+
+    acct_list = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+    return [(alias, config, accounts.resolve_folder(alias, folder)) for alias, config in acct_list]
 
 
 @click.group()
@@ -91,16 +109,19 @@ def folders_cmd(acct: str | None):
 @cli.command("list")
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder (default: inbox).")
+@click.option("--all-folders", "-A", is_flag=True, help="Search all folders.")
 @click.option("--limit", "-n", default=20, help="Number of messages.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def list_cmd(acct: str | None, folder: str | None, limit: int, as_json: bool):
+def list_cmd(acct: str | None, folder: str | None, all_folders: bool, limit: int, as_json: bool):
     """List recent messages."""
-    targets = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+    targets = _resolve_targets(acct, folder, all_folders)
     all_msgs = []
-    for alias, config in targets:
-        mailbox = accounts.resolve_folder(alias, folder)
-        msgs = applescript.list_messages(config["name"], mailbox, limit=limit)
-        all_msgs.extend(msgs)
+    for alias, config, mailbox in targets:
+        try:
+            msgs = applescript.list_messages(config["name"], mailbox, limit=limit)
+            all_msgs.extend(msgs)
+        except RuntimeError:
+            continue
 
     if as_json:
         click.echo(json.dumps(all_msgs, indent=2))
@@ -112,7 +133,7 @@ def list_cmd(acct: str | None, folder: str | None, limit: int, as_json: bool):
 
     show_account = acct is None
     for m in all_msgs:
-        click.echo(_format_msg(m, show_account))
+        click.echo(_format_msg(m, show_account, show_folder=all_folders))
 
 
 # --- search ---
@@ -121,6 +142,7 @@ def list_cmd(acct: str | None, folder: str | None, limit: int, as_json: bool):
 @cli.command("search")
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder (default: inbox).")
+@click.option("--all-folders", "-A", is_flag=True, help="Search all folders.")
 @click.option("--subject", "-s", "subject_filter", default=None, help="Filter by subject.")
 @click.option("--sender", "sender_filter", default=None, help="Filter by sender.")
 @click.option("--body", "-b", "body_query", default=None, help="Search message body (slower).")
@@ -128,26 +150,28 @@ def list_cmd(acct: str | None, folder: str | None, limit: int, as_json: bool):
 @click.option("--before", default=None, type=click.DateTime(formats=["%Y-%m-%d"]), help="Before date (YYYY-MM-DD).")
 @click.option("--limit", "-n", default=20, help="Max results.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def search_cmd(acct, folder, subject_filter, sender_filter, body_query, after, before, limit, as_json):
+def search_cmd(acct, folder, all_folders, subject_filter, sender_filter, body_query, after, before, limit, as_json):
     """Search messages by metadata or body content."""
-    targets = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+    targets = _resolve_targets(acct, folder, all_folders)
     all_results = []
 
-    for alias, config in targets:
-        mailbox = accounts.resolve_folder(alias, folder)
-        if body_query:
-            msgs = applescript.search_body(
-                config["name"], mailbox, body_query, limit=limit,
-                after=after, before=before,
-                subject_filter=subject_filter, sender_filter=sender_filter,
-            )
-        else:
-            msgs = applescript.list_messages(
-                config["name"], mailbox, limit=limit,
-                after=after, before=before,
-                subject_filter=subject_filter, sender_filter=sender_filter,
-            )
-        all_results.extend(msgs)
+    for alias, config, mailbox in targets:
+        try:
+            if body_query:
+                msgs = applescript.search_body(
+                    config["name"], mailbox, body_query, limit=limit,
+                    after=after, before=before,
+                    subject_filter=subject_filter, sender_filter=sender_filter,
+                )
+            else:
+                msgs = applescript.list_messages(
+                    config["name"], mailbox, limit=limit,
+                    after=after, before=before,
+                    subject_filter=subject_filter, sender_filter=sender_filter,
+                )
+            all_results.extend(msgs)
+        except RuntimeError:
+            continue
 
     if as_json:
         click.echo(json.dumps(all_results, indent=2))
@@ -159,7 +183,7 @@ def search_cmd(acct, folder, subject_filter, sender_filter, body_query, after, b
 
     show_account = acct is None
     for m in all_results:
-        click.echo(_format_msg(m, show_account))
+        click.echo(_format_msg(m, show_account, show_folder=all_folders))
         if m.get("snippet"):
             click.echo(click.style(f"  {_truncate(m['snippet'], 120)}", fg=DIM))
 
@@ -168,22 +192,40 @@ def search_cmd(acct, folder, subject_filter, sender_filter, body_query, after, b
 
 
 @cli.command("read")
-@click.argument("message_id")
+@click.argument("identifier")
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder.")
 @click.option("--format", "fmt", type=click.Choice(["plain", "html", "links"]), default="plain")
 @click.option("--max-length", default=None, type=int, help="Truncate body to N chars.")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
-def read_cmd(message_id, acct, folder, fmt, max_length, as_json):
-    """Read a message by its message ID."""
-    targets = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+def read_cmd(identifier, acct, folder, fmt, max_length, as_json):
+    """Read a message by index (1-based) or message ID.
 
-    for alias, config in targets:
-        mailbox = accounts.resolve_folder(alias, folder)
+    Use a number to read by position (e.g. `mail read 1` for the first
+    message in a folder). Use a message ID string for exact lookup.
+    """
+    targets = _resolve_targets(acct, folder, False)
+    result = None
+
+    # If identifier looks like an integer, treat as 1-based index
+    try:
+        idx = int(identifier)
+        alias, config, mailbox = targets[0]
+        msgs = applescript.list_messages(config["name"], mailbox, limit=idx)
+        if idx < 1 or idx > len(msgs):
+            click.echo(f"Index {idx} out of range (have {len(msgs)} messages).")
+            return
+        message_id = msgs[idx - 1]["message_id"]
         result = applescript.read_message(config["name"], mailbox, message_id, fmt=fmt)
-        if result:
-            break
-    else:
+    except ValueError:
+        # Not an integer, treat as message ID
+        message_id = identifier
+        for alias, config, mailbox in targets:
+            result = applescript.read_message(config["name"], mailbox, message_id, fmt=fmt)
+            if result:
+                break
+
+    if not result:
         click.echo("Message not found.")
         return
 
