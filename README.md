@@ -82,11 +82,27 @@ mail read 1                             # read first message in inbox (by index)
 mail read 3 -a work -f "Projects"       # read 3rd message in a specific folder
 mail read <message-id>                  # read by message ID
 mail read 1 --format html              # HTML body
-mail read 1 --format links             # extract all links
+mail read 1 --format links             # extract numbered links
 mail read 1 --max-length 500           # truncate body
 ```
 
 Indexes are 1-based, matching the order from `mail list`. Message IDs are shown in `list` and `search` output when using `--json`.
+
+### Open in Mail.app
+
+```bash
+mail open 1                             # open first inbox message in Apple Mail
+mail open 3 -a work -f "Projects"       # open by index in a folder
+mail open <message-id>                  # open by message ID
+```
+
+### Open a link from an email
+
+```bash
+mail read 1 --format links              # see numbered links
+mail open-link 1 2                       # open link [2] from message 1 in browser
+mail open-link <message-id> 1            # open link [1] by message ID
+```
 
 ### Delete
 

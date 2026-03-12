@@ -249,6 +249,22 @@ return "sent"'''
     return _run(script)
 
 
+def open_message(account_name: str, folder: str, message_id: str) -> str:
+    script = f'''
+tell application "Mail"
+    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set matches to (every message of mb whose message id is "{_esc(message_id)}")
+    if (count of matches) is 0 then return "message not found"
+    set m to item 1 of matches
+    set msgId to id of m
+    activate
+    set theURL to "message:%3C" & message id of m & "%3E"
+    open location theURL
+    return "opened"
+end tell'''
+    return _run(script)
+
+
 def delete_message(account_name: str, folder: str, message_id: str) -> str:
     script = f'''
 tell application "Mail"

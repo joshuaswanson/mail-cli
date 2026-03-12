@@ -295,8 +295,94 @@ def read_cmd(identifier, acct, folder, fmt, max_length, as_json):
 
     if result.get("links"):
         click.echo(f'\n{click.style("Links:", bold=True)}')
-        for link in result["links"]:
-            click.echo(f"  {link}")
+        for i, link in enumerate(result["links"], 1):
+            num = click.style(f"  [{i}]", fg=DIM)
+            click.echo(f"{num} {link}")
+
+
+# --- open ---
+
+
+@cli.command("open")
+@click.argument("identifier")
+@click.option("--account", "-a", "acct", default=None, help="Account alias.")
+@click.option("--folder", "-f", default=None, help="Mailbox folder.")
+def open_cmd(identifier, acct, folder):
+    """Open a message in Apple Mail by index or message ID."""
+    targets = _resolve_targets(acct, folder, False)
+
+    try:
+        idx = int(identifier)
+        alias, config, mailbox = targets[0]
+        msgs = applescript.list_messages(config["name"], mailbox, limit=idx)
+        if idx < 1 or idx > len(msgs):
+            click.echo(f"Index {idx} out of range (have {len(msgs)} messages).")
+            return
+        message_id = msgs[idx - 1]["message_id"]
+        result = applescript.open_message(config["name"], mailbox, message_id)
+    except ValueError:
+        message_id = identifier
+        result = None
+        for alias, config, mailbox in targets:
+            try:
+                result = applescript.open_message(config["name"], mailbox, message_id)
+                if result and result != "message not found":
+                    break
+            except RuntimeError:
+                continue
+
+    if not result or result == "message not found":
+        click.echo("Message not found.")
+        return
+    click.echo(result)
+
+
+# --- open-link ---
+
+
+@cli.command("open-link")
+@click.argument("identifier")
+@click.argument("link_number", type=int)
+@click.option("--account", "-a", "acct", default=None, help="Account alias.")
+@click.option("--folder", "-f", default=None, help="Mailbox folder.")
+def open_link_cmd(identifier, link_number, acct, folder):
+    """Open a numbered link from an email in the browser.
+
+    First use `mail read <id> --format links` to see numbered links,
+    then `mail open-link <id> <number>` to open one.
+    """
+    import subprocess
+
+    targets = _resolve_targets(acct, folder, False)
+    result = None
+
+    try:
+        idx = int(identifier)
+        alias, config, mailbox = targets[0]
+        msgs = applescript.list_messages(config["name"], mailbox, limit=idx)
+        if idx < 1 or idx > len(msgs):
+            click.echo(f"Index {idx} out of range.")
+            return
+        msg_id = msgs[idx - 1]["message_id"]
+        result = applescript.read_message(config["name"], mailbox, msg_id, fmt="links")
+    except ValueError:
+        for alias, config, mailbox in targets:
+            result = applescript.read_message(config["name"], mailbox, identifier, fmt="links")
+            if result:
+                break
+
+    if not result:
+        click.echo("Message not found.")
+        return
+
+    links = result.get("links", [])
+    if link_number < 1 or link_number > len(links):
+        click.echo(f"Link {link_number} out of range (have {len(links)} links).")
+        return
+
+    url = links[link_number - 1]
+    click.echo(f"Opening: {url}")
+    subprocess.run(["open", url])
 
 
 # --- send ---
