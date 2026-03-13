@@ -28,6 +28,16 @@ def _load() -> dict:
 
 def save(accounts: dict) -> None:
     global _accounts
+    # Check for duplicate account names
+    names = {}
+    for alias, config in accounts.items():
+        name_lower = config["name"].lower()
+        if name_lower in names:
+            raise ValueError(
+                f"Duplicate account name {config['name']!r} "
+                f"in aliases {names[name_lower]!r} and {alias!r}"
+            )
+        names[name_lower] = alias
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text(json.dumps(accounts, indent=2) + "\n")
     _accounts = accounts

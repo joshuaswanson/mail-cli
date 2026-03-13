@@ -4,9 +4,9 @@ A command-line interface for Apple Mail on macOS. Wraps AppleScript to provide f
 
 ## Features
 
-- **List and search emails** with filters for subject, sender, date range, body content, and read status
+- **List and search emails** with filters for subject, sender, date range, body content, and read status (all filters work with body search too)
 - **Search across all folders** at once with `--all-folders`
-- **Read messages** by index or message ID, in plain text, HTML, or extract links
+- **Read messages** by index or message ID, in plain text, HTML, or extract links (with deduplication and plain-text URL fallback)
 - **Delete and move** messages between folders
 - **Send and reply** to emails from any configured account
 - **Multiple accounts** with automatic inbox name normalization and date-sorted merged results
@@ -71,6 +71,7 @@ mail search --after 2025-01-01 --before 2025-02-01 # by date range
 mail search -b "quarterly report" -a work          # body search (slower)
 mail search -s "hotel" -A                          # search all folders
 mail search -u --sender "boss@work.com"            # unread from a sender
+mail search -u -b "action required"               # unread body search
 ```
 
 Filters can be combined. Omit `--account` to search across all accounts. Use `-A` / `--all-folders` to search every folder instead of just the inbox.

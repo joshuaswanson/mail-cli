@@ -1,11 +1,14 @@
 """CLI entry point for mail-cli."""
 
 import json
+import logging
 from datetime import datetime as _datetime
 
 import click
 
 from . import accounts, applescript
+
+logger = logging.getLogger(__name__)
 
 DIM = "bright_black"
 SENDER = "cyan"
@@ -41,11 +44,17 @@ def _parse_date(date_str: str) -> _datetime:
         "%A, %B %d, %Y at %H:%M:%S",
         "%A, %B %d, %Y at %I:%M:%S %p",
         "%B %d, %Y at %H:%M:%S",
+        "%B %d, %Y at %I:%M:%S %p",
+        "%d %B %Y at %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%d.%m.%Y %H:%M:%S",
     ):
         try:
             return _datetime.strptime(date_str.strip(), fmt)
         except ValueError:
             continue
+    logger.warning("Could not parse date: %r", date_str)
     return _datetime.min
 
 
@@ -166,7 +175,8 @@ def list_cmd(acct: str | None, folder: str | None, all_folders: bool, unread: bo
         try:
             msgs = applescript.list_messages(config["name"], mailbox, limit=limit, unread_only=unread)
             all_msgs.extend(msgs)
-        except RuntimeError:
+        except RuntimeError as e:
+            logger.warning("Error listing %s/%s: %s", alias, mailbox, e)
             continue
 
     all_msgs = _sort_by_date(all_msgs)
@@ -214,6 +224,7 @@ def search_cmd(acct, folder, all_folders, unread, subject_filter, sender_filter,
                     config["name"], mailbox, body_query, limit=limit,
                     after=after, before=before,
                     subject_filter=subject_filter, sender_filter=sender_filter,
+                    unread_only=unread,
                 )
             else:
                 msgs = applescript.list_messages(
@@ -223,7 +234,8 @@ def search_cmd(acct, folder, all_folders, unread, subject_filter, sender_filter,
                     unread_only=unread,
                 )
             all_results.extend(msgs)
-        except RuntimeError:
+        except RuntimeError as e:
+            logger.warning("Error searching %s/%s: %s", alias, mailbox, e)
             continue
 
     all_results = _sort_by_date(all_results)

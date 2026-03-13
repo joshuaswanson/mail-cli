@@ -175,6 +175,7 @@ def search_body(
     before: datetime | None = None,
     subject_filter: str | None = None,
     sender_filter: str | None = None,
+    unread_only: bool = False,
     batch_size: int = 50,
 ) -> list[dict]:
     # First get candidate messages using metadata filters
@@ -182,6 +183,7 @@ def search_body(
         account_name, folder, limit=500,
         after=after, before=before,
         subject_filter=subject_filter, sender_filter=sender_filter,
+        unread_only=unread_only,
     )
     if not candidates:
         return []
@@ -240,13 +242,14 @@ def reply_to_message(
     body: str,
     reply_all: bool = False,
 ) -> str:
+    reply_clause = "opening window" if reply_all else ""
     script = f'''
 tell application "Mail"
     set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
     set matches to (every message of mb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return "message not found"
     set m to item 1 of matches
-    set replyMsg to reply m {"opening window" if reply_all else ""} with properties {{content:"{_esc(body)}"}}
+    set replyMsg to reply m {reply_clause} with properties {{content:"{_esc(body)}"}}
     send replyMsg
 end tell
 return "sent"'''
@@ -368,6 +371,9 @@ def _extract_html(mime_source: str) -> str:
     return mime_source
 
 
+_URL_RE = re.compile(r'https?://[^\s<>"\')\]]+')
+
+
 class _LinkExtractor(html.parser.HTMLParser):
     def __init__(self):
         super().__init__()
@@ -387,4 +393,18 @@ def _extract_links(mime_source: str) -> tuple[str, list[str]]:
         parser.feed(html_body)
     except Exception:
         pass
-    return html_body, parser.links
+
+    links = parser.links
+    # Fall back to regex URL extraction for plain-text emails
+    if not links:
+        links = _URL_RE.findall(html_body)
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for link in links:
+        if link not in seen:
+            seen.add(link)
+            unique.append(link)
+
+    return html_body, unique
