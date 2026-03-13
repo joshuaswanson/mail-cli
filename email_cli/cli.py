@@ -1,4 +1,4 @@
-"""CLI entry point for mail-cli."""
+"""CLI entry point for email-cli."""
 
 import json
 import logging
@@ -124,21 +124,21 @@ def cli():
 
 @cli.command("refresh")
 def refresh_cmd():
-    """Check for new mail across all accounts."""
+    """Check for new email across all accounts."""
     applescript.check_for_new_mail()
-    click.echo("Checking for new mail...")
+    click.echo("Checking for new email...")
 
 
 @cli.group()
 def account():
-    """Manage mail accounts."""
+    """Manage email accounts."""
 
 
 @account.command("init")
 def account_init():
-    """Interactive setup for mail accounts."""
+    """Interactive setup for email accounts."""
     config = {}
-    click.echo("Add mail accounts. Enter an empty alias to finish.\n")
+    click.echo("Add email accounts. Enter an empty alias to finish.\n")
     while True:
         alias = click.prompt("Account alias (e.g. icloud, eth)", default="", show_default=False)
         if not alias:
@@ -328,7 +328,7 @@ def search_cmd(acct, folder, all_folders, unread, subject_filter, sender_filter,
 def read_cmd(identifier, acct, folder, fmt, max_length, as_json):
     """Read a message by index (1-based) or message ID.
 
-    Use a number to read by position (e.g. `mail read 1` for the first
+    Use a number to read by position (e.g. `email read 1` for the first
     message in a folder). Use a message ID string for exact lookup.
     """
     targets = _resolve_targets(acct, folder, False)
@@ -427,8 +427,8 @@ def open_cmd(identifier, acct, folder):
 def open_link_cmd(identifier, link_number, acct, folder):
     """Open a numbered link from an email in the browser.
 
-    First use `mail read <id> --format links` to see numbered links,
-    then `mail open-link <id> <number>` to open one.
+    First use `email read <id> --format links` to see numbered links,
+    then `email open-link <id> <number>` to open one.
     """
     import subprocess
 

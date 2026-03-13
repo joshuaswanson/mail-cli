@@ -1,13 +1,13 @@
 """Account configuration and mailbox name normalization.
 
-Reads account config from ~/.config/mail-cli/accounts.json.
-Run `mail accounts init` to create the config interactively.
+Reads account config from ~/.config/email-cli/accounts.json.
+Run `email accounts init` to create the config interactively.
 """
 
 import json
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "mail-cli"
+CONFIG_DIR = Path.home() / ".config" / "email-cli"
 CONFIG_FILE = CONFIG_DIR / "accounts.json"
 
 # Cache
@@ -20,7 +20,7 @@ def _load() -> dict:
         return _accounts
     if not CONFIG_FILE.exists():
         raise FileNotFoundError(
-            f"No config found at {CONFIG_FILE}. Run `mail accounts init` to set up."
+            f"No config found at {CONFIG_FILE}. Run `email accounts init` to set up."
         )
     _accounts = json.loads(CONFIG_FILE.read_text())
     return _accounts
