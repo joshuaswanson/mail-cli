@@ -161,3 +161,9 @@ mail-cli generates AppleScript, executes it via `osascript`, and parses the outp
 - macOS only (requires Apple Mail)
 - Body search is slower than metadata search since it fetches content for each candidate message
 - Apple Mail must be running (AppleScript launches it automatically if needed)
+
+## Support
+
+If you find this useful, [buy me a coffee](https://buymeacoffee.com/swanson).
+
+<img src="assets/bmc_qr.png" alt="Buy Me a Coffee QR" width="200">
