@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sys
 from datetime import datetime as _datetime
 
 import click
@@ -81,6 +82,24 @@ def _resolve_msg_id(identifier: str, account_name: str, folder: str) -> str | No
         return identifier
 
 
+def _read_ids_from_stdin() -> list[str]:
+    """Read message IDs from stdin (one per line, or JSON array)."""
+    if sys.stdin.isatty():
+        return []
+    raw = sys.stdin.read().strip()
+    if not raw:
+        return []
+    # Try JSON array first (from --json piping)
+    if raw.startswith("["):
+        try:
+            data = json.loads(raw)
+            return [m["message_id"] for m in data if "message_id" in m]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # Fall back to one ID per line
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
 def _resolve_targets(acct: str | None, folder: str | None, all_folders: bool):
     """Return list of (alias, config, mailbox) tuples to search."""
     if all_folders:
@@ -146,15 +165,56 @@ def account_list():
 # --- folders ---
 
 
-@cli.command("folders")
+@cli.group("folder", invoke_without_command=True)
 @click.option("--account", "-a", "acct", default=None, help="Account alias.")
-def folders_cmd(acct: str | None):
-    """List mailbox folders."""
-    targets = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
-    for alias, config in targets:
-        folders = applescript.list_folders(config["name"])
-        label = click.style(alias, bold=True)
-        click.echo(f"{label}: {', '.join(folders)}")
+@click.pass_context
+def folder_group(ctx, acct: str | None):
+    """Manage mailbox folders. Lists folders when called without a subcommand."""
+    ctx.ensure_object(dict)
+    ctx.obj["acct"] = acct
+    if ctx.invoked_subcommand is None:
+        targets = [(acct, accounts.resolve_account(acct))] if acct else accounts.all_accounts()
+        for alias, config in targets:
+            folders = applescript.list_folders(config["name"])
+            label = click.style(alias, bold=True)
+            click.echo(f"{label}: {', '.join(folders)}")
+
+
+cli.add_command(folder_group, "folders")
+
+
+@folder_group.command("create")
+@click.argument("name")
+@click.option("--account", "-a", "acct", required=True, help="Account alias.")
+def folder_create(name, acct):
+    """Create a new mailbox folder."""
+    config = accounts.resolve_account(acct)
+    result = applescript.create_folder(config["name"], name)
+    if result == "already exists":
+        click.echo(f"Folder {name!r} already exists in {acct}.")
+    else:
+        click.echo(f"Created folder {name!r} in {acct}.")
+
+
+@folder_group.command("delete")
+@click.argument("name")
+@click.option("--account", "-a", "acct", required=True, help="Account alias.")
+@click.option("--confirm", is_flag=True, help="Actually delete (required).")
+def folder_delete(name, acct, confirm):
+    """Delete a mailbox folder and all its messages."""
+    config = accounts.resolve_account(acct)
+    if not confirm:
+        try:
+            msgs = applescript.list_messages(config["name"], name, limit=500)
+            count = len(msgs)
+        except RuntimeError:
+            count = 0
+        click.echo(f'{click.style("Delete folder:", bold=True)} {name} ({count} messages)')
+        click.echo(f'{click.style("Account:", bold=True)} {acct}')
+        click.echo(f'\nPass {click.style("--confirm", bold=True)} to actually delete.')
+        return
+    result = applescript.delete_folder(config["name"], name)
+    click.echo(f"Deleted folder {name!r} from {acct}.")
 
 
 # --- list ---
@@ -478,16 +538,38 @@ def reply_cmd(message_id, acct, folder, body, reply_all, confirm):
 
 
 @cli.command("delete")
-@click.argument("identifier")
+@click.argument("identifier", required=False, default=None)
 @click.option("--account", "-a", "acct", required=True, help="Account alias.")
 @click.option("--folder", "-f", default=None, help="Mailbox folder.")
+@click.option("--ids", default=None, help="Comma-separated message IDs for bulk delete.")
+@click.option("--stdin", "from_stdin", is_flag=True, help="Read message IDs from stdin (JSON or one per line).")
 @click.option("--confirm", is_flag=True, help="Actually delete (required).")
-def delete_cmd(identifier, acct, folder, confirm):
-    """Delete a message by index (1-based) or message ID. Requires --confirm."""
+def delete_cmd(identifier, acct, folder, ids, from_stdin, confirm):
+    """Delete messages by index, message ID, --ids, or --stdin. Requires --confirm."""
     config = accounts.resolve_account(acct)
     mailbox = accounts.resolve_folder(acct, folder)
-    message_id = _resolve_msg_id(identifier, config["name"], mailbox)
 
+    # Collect message IDs for bulk operation
+    bulk_ids = []
+    if from_stdin:
+        bulk_ids = _read_ids_from_stdin()
+    elif ids:
+        bulk_ids = [i.strip() for i in ids.split(",") if i.strip()]
+
+    if bulk_ids:
+        if not confirm:
+            click.echo(f'{click.style("Bulk delete:", bold=True)} {len(bulk_ids)} message(s) from {acct}/{mailbox}')
+            click.echo(f'\nPass {click.style("--confirm", bold=True)} to actually delete.')
+            return
+        count = applescript.bulk_delete(config["name"], mailbox, bulk_ids)
+        click.echo(f"Deleted {count}/{len(bulk_ids)} messages.")
+        return
+
+    if not identifier:
+        click.echo("Provide a message identifier, --ids, or --stdin.")
+        return
+
+    message_id = _resolve_msg_id(identifier, config["name"], mailbox)
     if not message_id:
         click.echo("Message not found.")
         return
@@ -512,17 +594,39 @@ def delete_cmd(identifier, acct, folder, confirm):
 
 
 @cli.command("move")
-@click.argument("identifier")
+@click.argument("identifier", required=False, default=None)
 @click.option("--account", "-a", "acct", required=True, help="Account alias.")
 @click.option("--from", "-f", "from_folder", default=None, help="Source folder (default: inbox).")
 @click.option("--to", "-t", "to_folder", required=True, help="Destination folder.")
+@click.option("--ids", default=None, help="Comma-separated message IDs for bulk move.")
+@click.option("--stdin", "from_stdin", is_flag=True, help="Read message IDs from stdin (JSON or one per line).")
 @click.option("--confirm", is_flag=True, help="Actually move (required).")
-def move_cmd(identifier, acct, from_folder, to_folder, confirm):
-    """Move a message between folders. Requires --confirm."""
+def move_cmd(identifier, acct, from_folder, to_folder, ids, from_stdin, confirm):
+    """Move messages between folders. Requires --confirm."""
     config = accounts.resolve_account(acct)
     src = accounts.resolve_folder(acct, from_folder)
-    message_id = _resolve_msg_id(identifier, config["name"], src)
 
+    # Collect message IDs for bulk operation
+    bulk_ids = []
+    if from_stdin:
+        bulk_ids = _read_ids_from_stdin()
+    elif ids:
+        bulk_ids = [i.strip() for i in ids.split(",") if i.strip()]
+
+    if bulk_ids:
+        if not confirm:
+            click.echo(f'{click.style("Bulk move:", bold=True)} {len(bulk_ids)} message(s) from {src} to {to_folder}')
+            click.echo(f'\nPass {click.style("--confirm", bold=True)} to actually move.')
+            return
+        count = applescript.bulk_move(config["name"], src, to_folder, bulk_ids)
+        click.echo(f"Moved {count}/{len(bulk_ids)} messages to {to_folder}.")
+        return
+
+    if not identifier:
+        click.echo("Provide a message identifier, --ids, or --stdin.")
+        return
+
+    message_id = _resolve_msg_id(identifier, config["name"], src)
     if not message_id:
         click.echo("Message not found.")
         return

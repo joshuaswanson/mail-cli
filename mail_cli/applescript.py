@@ -285,6 +285,88 @@ end tell'''
     return _run(script)
 
 
+def create_folder(account_name: str, folder_name: str) -> str:
+    script = f'''
+tell application "Mail"
+    set acct to account "{_esc(account_name)}"
+    try
+        set existing to mailbox "{_esc(folder_name)}" of acct
+        return "already exists"
+    end try
+    make new mailbox with properties {{name:"{_esc(folder_name)}"}} at acct
+    return "created"
+end tell'''
+    return _run(script)
+
+
+def delete_folder(account_name: str, folder_name: str) -> str:
+    script = f'''
+tell application "Mail"
+    set acct to account "{_esc(account_name)}"
+    set mb to mailbox "{_esc(folder_name)}" of acct
+    delete mb
+    return "deleted"
+end tell'''
+    return _run(script)
+
+
+def bulk_delete(account_name: str, folder: str, message_ids: list[str]) -> int:
+    if not message_ids:
+        return 0
+    delete_blocks = ""
+    for mid in message_ids:
+        delete_blocks += f'''
+        try
+            set matches to (every message of mb whose message id is "{_esc(mid)}")
+            if (count of matches) > 0 then
+                delete item 1 of matches
+                set deleted to deleted + 1
+            end if
+        end try
+'''
+    script = f'''
+tell application "Mail"
+    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set deleted to 0
+{delete_blocks}
+    return deleted as string
+end tell'''
+    result = _run(script, timeout=120)
+    try:
+        return int(result)
+    except ValueError:
+        return 0
+
+
+def bulk_move(account_name: str, from_folder: str, to_folder: str, message_ids: list[str]) -> int:
+    if not message_ids:
+        return 0
+    move_blocks = ""
+    for mid in message_ids:
+        move_blocks += f'''
+        try
+            set matches to (every message of srcMb whose message id is "{_esc(mid)}")
+            if (count of matches) > 0 then
+                move item 1 of matches to dstMb
+                set moved to moved + 1
+            end if
+        end try
+'''
+    script = f'''
+tell application "Mail"
+    set srcMb to mailbox "{_esc(from_folder)}" of account "{_esc(account_name)}"
+    set dstMb to mailbox "{_esc(to_folder)}" of account "{_esc(account_name)}"
+    set moved to 0
+{move_blocks}
+    return moved as string
+end tell'''
+    result = _run(script, timeout=120)
+    try:
+        return int(result)
+    except ValueError:
+        return 0
+
+
 def move_message(account_name: str, from_folder: str, to_folder: str, message_id: str) -> str:
     script = f'''
 tell application "Mail"

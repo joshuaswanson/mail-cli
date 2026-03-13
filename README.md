@@ -7,10 +7,11 @@ A command-line interface for Apple Mail on macOS. Wraps AppleScript to provide f
 - **List and search emails** with filters for subject, sender, date range, body content, and read status (all filters work with body search too)
 - **Search across all folders** at once with `--all-folders`
 - **Read messages** by index or message ID, in plain text, HTML, or extract links (with deduplication and plain-text URL fallback)
-- **Delete and move** messages between folders
+- **Delete and move** messages between folders, individually or in bulk
+- **Manage folders**: create and delete mailbox folders
 - **Send and reply** to emails from any configured account
 - **Multiple accounts** with automatic inbox name normalization and date-sorted merged results
-- **JSON output** for scripting and piping
+- **JSON output** for scripting and piping (pipe search results into bulk move/delete)
 
 ## Installation
 
@@ -114,12 +115,36 @@ mail delete 3 -a personal -f "ICLR" --confirm      # delete 3rd message in folde
 mail delete <message-id> -a work --confirm         # delete by message ID
 ```
 
+#### Bulk delete
+
+```bash
+mail delete -a personal --ids "id1,id2,id3" --confirm
+mail search -s "newsletter" -a personal --json | mail delete -a personal --stdin --confirm
+```
+
 ### Move
 
 ```bash
 mail move 1 -a personal -t "Archive"                        # preview
 mail move 1 -a personal -t "Archive" --confirm               # move from inbox to Archive
 mail move 2 -a personal -f "ICLR" -t "INBOX" --confirm      # move between folders
+```
+
+#### Bulk move
+
+```bash
+mail move -a personal -t "Archive" --ids "id1,id2,id3" --confirm
+mail search -s "receipts" -a personal --json | mail move -a personal -t "Receipts" --stdin --confirm
+```
+
+### Folder management
+
+```bash
+mail folder                        # list all folders (same as mail folders)
+mail folder -a personal            # list folders for one account
+mail folder create "Projects" -a work     # create a new folder
+mail folder delete "Old Stuff" -a work    # preview deletion
+mail folder delete "Old Stuff" -a work --confirm  # delete folder and all messages
 ```
 
 ### Send
@@ -139,8 +164,6 @@ mail reply <message-id> -b "Thanks!" --all --confirm  # reply all
 ### Other
 
 ```bash
-mail folders              # list all folders for all accounts
-mail folders -a personal  # list folders for one account
 mail account list         # show configured accounts
 mail refresh              # check for new mail across all accounts
 ```
