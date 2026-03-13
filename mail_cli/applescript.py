@@ -35,8 +35,37 @@ def check_for_new_mail() -> str:
     return _run('tell application "Mail" to check for new mail')
 
 
+def _mailbox_ref(folder: str, account_name: str) -> str:
+    """Convert a folder path like 'Housing/Sonneggstrasse 4' to an AppleScript
+    mailbox reference like: mailbox "Sonneggstrasse 4" of mailbox "Housing" of account "iCloud"
+    """
+    parts = folder.split("/")
+    ref = f'account "{_esc(account_name)}"'
+    for part in parts:
+        ref = f'mailbox "{_esc(part)}" of {ref}'
+    return ref
+
+
 def list_folders(account_name: str) -> list[str]:
-    script = f'tell application "Mail" to get name of every mailbox of account "{_esc(account_name)}"'
+    script = f'''tell application "Mail"
+    set acct to account "{_esc(account_name)}"
+    set allMb to every mailbox of acct
+    set output to ""
+    repeat with mb in allMb
+        set n to name of mb
+        set thePath to n
+        try
+            set cont to container of mb
+            set contClass to class of cont as string
+            if contClass is "container" then
+                set thePath to (name of cont) & "/" & n
+            end if
+        end try
+        if output is not "" then set output to output & ","
+        set output to output & thePath
+    end repeat
+    return output
+end tell'''
     raw = _run(script)
     if not raw:
         return []
@@ -70,11 +99,12 @@ def list_messages(
         whose = " whose " + " and ".join(conditions)
 
     fd, rd = FIELD_DELIM, ROW_DELIM
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
     set fieldSep to "{fd}"
     set rowSep to "{rd}"
-    set msgs to (every message of mailbox "{_esc(folder)}" of account "{_esc(account_name)}"{whose})
+    set msgs to (every message of {mb_ref}{whose})
     set maxN to {limit}
     set c to count of msgs
     if c < maxN then set maxN to c
@@ -118,10 +148,11 @@ def read_message(account_name: str, folder: str, message_id: str, fmt: str = "pl
     else:
         content_expr = "source of m"
 
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
     set fd to "{fd}"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set matches to (every message of mb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return ""
     set m to item 1 of matches
@@ -243,9 +274,10 @@ def reply_to_message(
     reply_all: bool = False,
 ) -> str:
     reply_clause = "opening window" if reply_all else ""
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set matches to (every message of mb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return "message not found"
     set m to item 1 of matches
@@ -257,9 +289,10 @@ return "sent"'''
 
 
 def open_message(account_name: str, folder: str, message_id: str) -> str:
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set matches to (every message of mb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return "message not found"
     set m to item 1 of matches
@@ -273,9 +306,10 @@ end tell'''
 
 
 def delete_message(account_name: str, folder: str, message_id: str) -> str:
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set matches to (every message of mb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return "message not found"
     set targetMsg to item 1 of matches
@@ -286,24 +320,24 @@ end tell'''
 
 
 def create_folder(account_name: str, folder_name: str) -> str:
+    mb_ref = _mailbox_ref(folder_name, account_name)
     script = f'''
 tell application "Mail"
-    set acct to account "{_esc(account_name)}"
     try
-        set existing to mailbox "{_esc(folder_name)}" of acct
+        set existing to {mb_ref}
         return "already exists"
     end try
-    make new mailbox with properties {{name:"{_esc(folder_name)}"}} at acct
+    make new mailbox with properties {{name:"{_esc(folder_name)}"}} at account "{_esc(account_name)}"
     return "created"
 end tell'''
     return _run(script)
 
 
 def delete_folder(account_name: str, folder_name: str) -> str:
+    mb_ref = _mailbox_ref(folder_name, account_name)
     script = f'''
 tell application "Mail"
-    set acct to account "{_esc(account_name)}"
-    set mb to mailbox "{_esc(folder_name)}" of acct
+    set mb to {mb_ref}
     delete mb
     return "deleted"
 end tell'''
@@ -324,9 +358,10 @@ def bulk_delete(account_name: str, folder: str, message_ids: list[str]) -> int:
             end if
         end try
 '''
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set deleted to 0
 {delete_blocks}
     return deleted as string
@@ -352,10 +387,12 @@ def bulk_move(account_name: str, from_folder: str, to_folder: str, message_ids: 
             end if
         end try
 '''
+    src_ref = _mailbox_ref(from_folder, account_name)
+    dst_ref = _mailbox_ref(to_folder, account_name)
     script = f'''
 tell application "Mail"
-    set srcMb to mailbox "{_esc(from_folder)}" of account "{_esc(account_name)}"
-    set dstMb to mailbox "{_esc(to_folder)}" of account "{_esc(account_name)}"
+    set srcMb to {src_ref}
+    set dstMb to {dst_ref}
     set moved to 0
 {move_blocks}
     return moved as string
@@ -368,10 +405,12 @@ end tell'''
 
 
 def move_message(account_name: str, from_folder: str, to_folder: str, message_id: str) -> str:
+    src_ref = _mailbox_ref(from_folder, account_name)
+    dst_ref = _mailbox_ref(to_folder, account_name)
     script = f'''
 tell application "Mail"
-    set srcMb to mailbox "{_esc(from_folder)}" of account "{_esc(account_name)}"
-    set dstMb to mailbox "{_esc(to_folder)}" of account "{_esc(account_name)}"
+    set srcMb to {src_ref}
+    set dstMb to {dst_ref}
     set matches to (every message of srcMb whose message id is "{_esc(message_id)}")
     if (count of matches) is 0 then return "message not found"
     set targetMsg to item 1 of matches
@@ -409,9 +448,10 @@ def _batch_fetch_content(account_name: str, folder: str, message_ids: list[str])
         end try
 '''
 
+    mb_ref = _mailbox_ref(folder, account_name)
     script = f'''
 tell application "Mail"
-    set mb to mailbox "{_esc(folder)}" of account "{_esc(account_name)}"
+    set mb to {mb_ref}
     set output to ""
 {fetch_blocks}
     return output
